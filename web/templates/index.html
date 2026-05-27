@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>SOXL/SOXS 分析ダッシュボード</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <header>
+    <h1>🐂🐻 SOXL / SOXS 分析ダッシュボード <small>(Go版)</small></h1>
+    <p class="muted">半導体3倍レバETF 売買判断支援ツール · ⚠️ 投資助言ではありません</p>
+  </header>
+
+  <section class="controls">
+    <label>期間:
+      <select id="period">
+        <option value="3mo">3ヶ月</option>
+        <option value="6mo">6ヶ月</option>
+        <option value="1y" selected>1年</option>
+        <option value="2y">2年</option>
+        <option value="5y">5年</option>
+      </select>
+    </label>
+    <label>メイン:
+      <select id="ticker">
+        <option value="SOXL" selected>SOXL (ブル3x)</option>
+        <option value="SOXS">SOXS (ベア3x)</option>
+      </select>
+    </label>
+    <label>初期資本:
+      <input type="number" id="capital" value="10000" step="1000" />
+    </label>
+    <button id="refresh">🔄 更新</button>
+  </section>
+
+  <section class="summary">
+    <div class="card"><div class="label">終値</div><div class="value" id="m_close">—</div><div class="sub" id="m_chg"></div></div>
+    <div class="card"><div class="label">シグナル</div><div class="value" id="m_score">—</div><div class="sub" id="m_label"></div></div>
+    <div class="card"><div class="label">RSI(14)</div><div class="value" id="m_rsi">—</div></div>
+    <div class="card"><div class="label">年率ボラ (HV20)</div><div class="value" id="m_hv">—</div></div>
+  </section>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="plan">💰 投資プラン</button>
+    <button class="tab" data-tab="chart">📈 チャート</button>
+    <button class="tab" data-tab="tech">📊 テクニカル</button>
+    <button class="tab" data-tab="decay">⚠️ ディケイ</button>
+    <button class="tab" data-tab="bt">🔁 バックテスト</button>
+    <button class="tab" data-tab="news">📰 ニュース</button>
+  </nav>
+
+  <main>
+    <section id="tab-plan" class="panel active">
+      <h2>💰 売買プラン（SOXL / SOXS 別表示）</h2>
+      <p class="muted">資本とリスク許容度から、エントリー・損切り・利確・株数を機械的に計算します。下のボタンで銘柄を切り替えてください。</p>
+      <div class="controls" style="background:transparent; padding: 8px 0;">
+        <label>リスク許容度 (1トレード/総資産%):
+          <input type="number" id="risk_pct" value="1.5" step="0.5" min="0.5" max="5" />
+        </label>
+        <button id="plan_soxl" class="active">🐂 SOXL プラン</button>
+        <button id="plan_soxs">🐻 SOXS プラン</button>
+      </div>
+
+      <div id="plan_card" class="plan-hero">
+        <div id="plan_action" class="plan-action">読み込み中…</div>
+        <div id="plan_label" class="plan-label"></div>
+        <div id="plan_conf" class="plan-conf"></div>
+      </div>
+
+      <div id="plan_grid" class="plan-grid"></div>
+
+      <div class="plan-section">
+        <h3>📝 判断理由</h3>
+        <ul id="plan_reasoning"></ul>
+      </div>
+
+      <div class="plan-section">
+        <h3>⚠️ 注意事項</h3>
+        <ul id="plan_warnings"></ul>
+      </div>
+    </section>
+
+    <section id="tab-chart" class="panel">
+      <h2>価格比較（初日=100で正規化）</h2>
+      <div id="chart_norm" class="plot"></div>
+      <h2>ロウソク足 + 出来高</h2>
+      <div id="chart_candle" class="plot"></div>
+    </section>
+
+    <section id="tab-tech" class="panel">
+      <h2>テクニカル指標</h2>
+      <div id="chart_tech" class="plot tall"></div>
+    </section>
+
+    <section id="tab-decay" class="panel">
+      <h2>レバETF ディケイ分析</h2>
+      <p>3倍レバETFは日次リバランスで必ず減価。理論3倍リターンと実価格の乖離。</p>
+      <div id="chart_decay" class="plot"></div>
+      <h2>SOXL + SOXS 同時保有シミュレーション</h2>
+      <p>両建てしても必ず損する有名な事象。</p>
+      <div id="chart_dual" class="plot"></div>
+      <div class="metric-strip"><div>最終損益: <span id="dual_pnl">—</span></div></div>
+    </section>
+
+    <section id="tab-bt" class="panel">
+      <h2>バックテスト</h2>
+      <p class="muted">過去データに対して戦略を機械的に適用して、もしこのルールで売買していたら資産がどう推移したかをシミュレーションします（ロングのみ・全力ベット）。</p>
+      <div class="controls">
+        <label>戦略:
+          <select id="bt_strategy">
+            <option value="MACD" selected>MACD</option>
+            <option value="RSI">RSI</option>
+            <option value="MA_CROSS">移動平均クロス</option>
+          </select>
+        </label>
+        <label>手数料 (bps): <input id="bt_fee" type="number" value="5" /></label>
+        <button id="bt_run">▶️ 実行</button>
+      </div>
+
+      <div id="bt_strategy_desc" class="bt-desc"></div>
+
+      <details class="bt-notes">
+        <summary>📖 バックテストの仕組み・前提条件</summary>
+        <ul>
+          <li><b>約定タイミング</b>: シグナル発生の<b>翌日終値</b>で売買（ルックアヘッドバイアス回避のため1日ずらす）</li>
+          <li><b>ポジション</b>: ロングのみ（空売り不可）／常に全力ベット（サイズ調整なし）</li>
+          <li><b>損益計算</b>: 日次の終値→終値リターンを複利で積み上げ。ポジション変更日は手数料(bps)を控除</li>
+          <li><b>含まれない要素</b>: スリッページ、配当・分配金、損切り・利確、税金</li>
+          <li><b>Sharpe</b>: リスクフリーレート0% / 年率換算 (×√252)</li>
+          <li><b>PF (Profit Factor)</b>: 勝ちトレードの総利益 ÷ 負けトレードの総損失。&gt;1 で勝ち越し</li>
+          <li><b>3倍レバETFのディケイ</b>: SOXL/SOXSの実価格を使うので価格データに既に反映済み</li>
+        </ul>
+      </details>
+
+      <div id="bt_stats" class="stat-grid"></div>
+      <div id="chart_bt" class="plot"></div>
+      <h3>トレード履歴</h3>
+      <div id="bt_trades" class="table-wrap"></div>
+    </section>
+
+    <section id="tab-news" class="panel">
+      <h2>半導体関連ニュース</h2>
+      <div class="metric-strip">
+        <div>平均センチメント: <span id="news_avg">—</span></div>
+        <div>件数: <span id="news_count">—</span></div>
+      </div>
+      <div id="news_list"></div>
+    </section>
+  </main>
+
+  <footer>
+    ⚠️ 本ツールは教育目的。SOXL/SOXSは3倍レバレッジETFで極めてハイリスク。投資は自己責任で。
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
